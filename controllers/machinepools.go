@@ -3,6 +3,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
+
 	ocmsdk "github.com/openshift-online/ocm-sdk-go"
 	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	"github.com/openshift-online/ocm-sdk-go/logging"
@@ -10,8 +13,6 @@ import (
 	arbv1 "github.com/project-codeflare/multi-cluster-app-dispatcher/pkg/apis/controller/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog"
-	"os"
-	"strings"
 )
 
 func scaleMachinePool(aw *arbv1.AppWrapper, userRequestedInstanceType string, replicas int) {
@@ -35,12 +36,22 @@ func scaleMachinePool(aw *arbv1.AppWrapper, userRequestedInstanceType string, re
 	defer connection.Close()
 
 	clusterMachinePools := connection.ClustersMgmt().V1().Clusters().Cluster(ocmClusterID).MachinePools()
+	klog.Infof("this is the ocmClusterID: %v", ocmClusterID)
 
 	m := make(map[string]string)
 	m[aw.Name] = aw.Name
 
 	machinePoolID := strings.ReplaceAll(aw.Name+"-"+userRequestedInstanceType, ".", "-")
-	createMachinePool, _ := cmv1.NewMachinePool().ID(machinePoolID).InstanceType(userRequestedInstanceType).Replicas(replicas).Labels(m).Build()
+	createMachinePool, e := cmv1.NewMachinePool().ID(machinePoolID).InstanceType(userRequestedInstanceType).Replicas(replicas).Labels(m).Build()
+	klog.Infof("this is the error: %v", e)
+	klog.Infof("this is the machinepool ID: %v", machinePoolID)
+	klog.Infof("this is the userRequestedInstanceType: %v", userRequestedInstanceType)
+	klog.Infof("this is the replicas: %v", replicas)
+	klog.Infof("this is the labels: %v", m)
+	if e != nil {
+		fmt.Fprintf(os.Stderr, " create machine pool err, %v\n", e)
+		os.Exit(1)
+	}
 
 	klog.Infof("Create machinepool with instance type %v and name %v", userRequestedInstanceType, createMachinePool.ID())
 	clusterMachinePools.Add().Body(createMachinePool).SendContext(context.Background())
@@ -115,8 +126,10 @@ func getOCMClusterID(r *AppWrapperReconciler) error {
 	// Get the client for the resource that manages the collection of clusters:
 	collection := connection.ClustersMgmt().V1().Clusters()
 
-	response, _ := collection.List().Search(fmt.Sprintf("external_id = '%s'", internalClusterID)).Size(1).Page(1).SendContext(ctx)
-
+	response, error := collection.List().Search(fmt.Sprintf("external_id = '%s'", internalClusterID)).Size(1).Page(1).SendContext(ctx)
+	klog.Infof("this is the error: %v", error)
+	klog.Infof("%s", internalClusterID)
+	//klog.Infof("%s", len(response.Items()))
 	response.Items().Each(func(cluster *cmv1.Cluster) bool {
 		ocmClusterID = cluster.ID()
 		fmt.Printf("%s - %s - %s\n", cluster.ID(), cluster.Name(), cluster.State())
